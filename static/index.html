@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>苏丹的游戏 · 本地修改器</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="noise" aria-hidden="true"></div>
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">س</div>
+        <div>
+          <p class="eyebrow">SULTAN'S GAME</p>
+          <h1>本地存档修改器</h1>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <span id="connectionBadge" class="status-badge">
+          <i></i><span>正在连接</span>
+        </span>
+        <button id="refreshButton" class="button button-ghost" type="button">
+          <span aria-hidden="true">↻</span> 刷新存档
+        </button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="sidebar panel">
+        <section>
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">ARCHIVES</p>
+              <h2>选择存档</h2>
+            </div>
+            <span id="saveCount" class="count-pill">0</span>
+          </div>
+          <div id="saveList" class="save-list" aria-live="polite">
+            <div class="skeleton skeleton-card"></div>
+            <div class="skeleton skeleton-card"></div>
+          </div>
+        </section>
+
+        <section class="sync-box">
+          <label class="switch-row" for="syncLinked">
+            <span>
+              <strong>同步关联存档</strong>
+              <small>第一槽、自动存档与同回合快照</small>
+            </span>
+            <input id="syncLinked" type="checkbox" checked />
+            <span class="switch" aria-hidden="true"></span>
+          </label>
+        </section>
+
+        <section class="path-box">
+          <p class="eyebrow">SAVE DIRECTORY</p>
+          <code id="saveDirectory">正在查找……</code>
+        </section>
+
+        <section class="safety-note">
+          <span class="safety-icon" aria-hidden="true">◇</span>
+          <div>
+            <strong>每次修改前自动备份</strong>
+            <p>写入采用原子替换。备份可在“备份”页随时恢复。</p>
+          </div>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <div id="emptyState" class="empty-state panel">
+          <div class="empty-symbol" aria-hidden="true">☾</div>
+          <h2>请选择一份存档</h2>
+          <p>修改器只读取本机文件，不会连接外部服务器。</p>
+        </div>
+
+        <div id="editor" class="editor hidden">
+          <section class="hero panel">
+            <div class="hero-copy">
+              <div class="hero-title-row">
+                <div>
+                  <p id="saveKind" class="eyebrow">ACTIVE ARCHIVE</p>
+                  <h2 id="saveTitle">正在进行</h2>
+                </div>
+                <span id="dirtyBadge" class="file-badge">已读取</span>
+              </div>
+              <p id="savePath" class="save-path"></p>
+            </div>
+            <div class="metrics" id="metrics"></div>
+          </section>
+
+          <section class="quick-grid">
+            <article class="quick-card panel danger-card">
+              <div class="quick-icon skull" aria-hidden="true">♜</div>
+              <div class="quick-content">
+                <p class="eyebrow">COURT FIX</p>
+                <h3>清除谗言与戏弄</h3>
+                <p>移除所有谗言卡，以及已经生成的“苏丹的戏弄”仪式。</p>
+              </div>
+              <button id="cleanupButton" class="button button-danger" type="button">
+                立即清理
+              </button>
+            </article>
+
+            <article class="quick-card panel gold-card">
+              <div class="quick-icon" aria-hidden="true">✦</div>
+              <div class="quick-content">
+                <p class="eyebrow">QUICK ADD</p>
+                <h3>添加黄金饰品</h3>
+                <p>加入普通掉落池中的黄金角杯，不会占用剧情唯一卡。</p>
+              </div>
+              <button id="goldAccessoryButton" class="button button-gold" type="button">
+                添加 1 张
+              </button>
+            </article>
+          </section>
+
+          <nav class="tabs panel" aria-label="修改器页面">
+            <button class="tab active" data-tab="inventory" type="button">卡牌实例</button>
+            <button class="tab" data-tab="catalog" type="button">添加卡牌</button>
+            <button class="tab" data-tab="backups" type="button">备份与恢复</button>
+          </nav>
+
+          <section id="inventoryTab" class="tab-panel panel">
+            <div class="content-heading">
+              <div>
+                <p class="eyebrow">INVENTORY</p>
+                <h2>当前卡牌实例</h2>
+                <p>显示存档中所有顶层卡牌，包括手牌、背包和已登记实例。</p>
+              </div>
+              <div class="toolbar">
+                <label class="search-box">
+                  <span aria-hidden="true">⌕</span>
+                  <input id="inventorySearch" type="search" placeholder="名称、ID 或标签" />
+                </label>
+                <select id="inventoryRare" aria-label="按品级筛选">
+                  <option value="">全部品级</option>
+                  <option value="4">黄金</option>
+                  <option value="3">白银</option>
+                  <option value="2">青铜</option>
+                  <option value="1">普通</option>
+                </select>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>卡牌</th>
+                    <th>品级</th>
+                    <th>位置</th>
+                    <th>数量</th>
+                    <th class="align-right">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="inventoryBody"></tbody>
+              </table>
+            </div>
+            <p id="inventoryFoot" class="table-foot"></p>
+          </section>
+
+          <section id="catalogTab" class="tab-panel panel hidden">
+            <div class="content-heading">
+              <div>
+                <p class="eyebrow">CARD CATALOG</p>
+                <h2>从卡牌库添加</h2>
+                <p>卡牌 ID、品级和标签直接读取当前游戏安装目录。</p>
+              </div>
+              <div class="toolbar">
+                <label class="search-box">
+                  <span aria-hidden="true">⌕</span>
+                  <input id="catalogSearch" type="search" placeholder="搜索卡牌库" />
+                </label>
+                <select id="catalogRare" aria-label="按品级筛选">
+                  <option value="">全部品级</option>
+                  <option value="4">黄金</option>
+                  <option value="3">白银</option>
+                  <option value="2">青铜</option>
+                  <option value="1">普通</option>
+                </select>
+                <select id="catalogType" aria-label="按类型筛选">
+                  <option value="">全部类型</option>
+                  <option value="item">物品</option>
+                  <option value="char">角色</option>
+                  <option value="sudan">苏丹卡</option>
+                </select>
+              </div>
+            </div>
+            <div id="catalogGrid" class="catalog-grid"></div>
+            <p id="catalogFoot" class="table-foot"></p>
+          </section>
+
+          <section id="backupsTab" class="tab-panel panel hidden">
+            <div class="content-heading">
+              <div>
+                <p class="eyebrow">RECOVERY</p>
+                <h2>备份与恢复</h2>
+                <p>恢复前也会再次备份当前文件，因此任何操作都有回退路径。</p>
+              </div>
+              <button id="reloadBackups" class="button button-ghost" type="button">刷新列表</button>
+            </div>
+            <div id="backupList" class="backup-list"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <div id="confirmDialog" class="dialog-backdrop hidden" role="presentation">
+      <section class="dialog panel" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+        <span class="dialog-symbol" aria-hidden="true">!</span>
+        <p class="eyebrow">CONFIRM CHANGE</p>
+        <h2 id="confirmTitle">确认修改</h2>
+        <p id="confirmMessage"></p>
+        <div class="dialog-actions">
+          <button id="confirmCancel" class="button button-ghost" type="button">取消</button>
+          <button id="confirmAccept" class="button button-danger" type="button">确认</button>
+        </div>
+      </section>
+    </div>
+
+    <div id="toastRegion" class="toast-region" aria-live="polite"></div>
+    <script src="/app.js" defer></script>
+  </body>
+</html>

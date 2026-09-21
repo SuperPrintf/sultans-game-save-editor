@@ -1,0 +1,20 @@
+# Runtime data — may contain personal game saves.
+backups/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local environments
+.venv/
+venv/
+env/
