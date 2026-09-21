@@ -17,7 +17,9 @@ document.addEventListener("DOMContentLoaded", () => {
     "inventoryRare", "inventoryBody", "inventoryFoot", "catalogSearch", "catalogRare",
     "catalogType", "catalogGrid", "catalogFoot", "backupList", "reloadBackups",
     "confirmDialog", "confirmTitle", "confirmMessage", "confirmCancel", "confirmAccept",
-    "toastRegion", "inventoryTab", "catalogTab", "backupsTab",
+    "toastRegion", "overviewTab", "handTab", "inventoryTab", "catalogTab", "backupsTab",
+    "parameterSearch", "parameterBody", "parameterFoot", "collectionGrid",
+    "handSearch", "handBag", "handGroups", "handFoot",
   ].forEach((id) => { els[id] = document.getElementById(id); });
 
   els.refreshButton.addEventListener("click", () => loadIndex(true));
@@ -25,6 +27,9 @@ document.addEventListener("DOMContentLoaded", () => {
   els.goldAccessoryButton.addEventListener("click", () => addCard(2000818, 1));
   els.inventorySearch.addEventListener("input", renderInventory);
   els.inventoryRare.addEventListener("change", renderInventory);
+  els.parameterSearch.addEventListener("input", renderParameters);
+  els.handSearch.addEventListener("input", renderHandPreview);
+  els.handBag.addEventListener("change", renderHandPreview);
   els.catalogSearch.addEventListener("input", debounce(loadCatalog, 180));
   els.catalogRare.addEventListener("change", loadCatalog);
   els.catalogType.addEventListener("change", loadCatalog);
@@ -131,14 +136,119 @@ function renderSave() {
   els.metrics.innerHTML = [
     metric("当前回合", summary.round ?? "—"),
     metric("卡牌实例", summary.card_instances ?? 0),
+    metric("在袋卡牌", summary.hand_instances ?? 0),
+    metric("仪式实例", summary.rite_instances ?? 0),
     metric("谗言", summary.slander ?? 0, summary.slander > 0),
     metric("待处理戏弄", summary.teasing ?? 0, summary.teasing > 0),
   ].join("");
+  renderParameters();
+  renderHandPreview();
   renderInventory();
 }
 
 function metric(label, value, alert = false) {
   return `<div class="metric ${alert ? "alert" : ""}"><small>${label}</small><strong>${escapeHtml(value)}</strong></div>`;
+}
+
+function renderParameters() {
+  if (!state.save) return;
+  const query = els.parameterSearch.value.trim().toLowerCase();
+  const parameters = state.save.parameters || { values: [], collections: [] };
+  const collections = parameters.collections.filter((item) => {
+    const haystack = `${item.label} ${item.key} ${item.kind} ${item.count}`.toLowerCase();
+    return !query || haystack.includes(query);
+  });
+  els.collectionGrid.innerHTML = collections.length ? collections.map((item) => `
+    <article class="collection-stat">
+      <span>${escapeHtml(item.label)}</span>
+      <strong>${escapeHtml(item.count)}</strong>
+      <small>${escapeHtml(item.key)} · ${escapeHtml(item.kind)}</small>
+    </article>`).join("") : "";
+
+  const values = parameters.values.filter((item) => {
+    const haystack = `${item.group} ${item.label} ${item.key} ${formatParameterValue(item)}`.toLowerCase();
+    return !query || haystack.includes(query);
+  });
+  els.parameterBody.innerHTML = values.length ? values.map((item) => `
+    <tr>
+      <td><span class="parameter-group">${escapeHtml(item.group)}</span></td>
+      <td><strong class="parameter-label">${escapeHtml(item.label)}</strong></td>
+      <td><code class="parameter-key">${escapeHtml(item.key)}</code></td>
+      <td><span class="type-pill">${escapeHtml(parameterTypeName(item.type))}</span></td>
+      <td><code class="parameter-value">${escapeHtml(formatParameterValue(item))}</code></td>
+    </tr>`).join("") : '<tr><td colspan="5">没有匹配的参数。</td></tr>';
+  els.parameterFoot.textContent = `匹配 ${values.length} 个参数与 ${collections.length} 个集合；全部内容均为只读。`;
+}
+
+function formatParameterValue(item) {
+  if (item.type === "boolean") return item.value ? "是 / true" : "否 / false";
+  if (item.type === "null") return "空 / null";
+  if (item.value === "") return "（空字符串）";
+  return String(item.value);
+}
+
+function parameterTypeName(type) {
+  return ({ number: "数值", boolean: "布尔", string: "文本", null: "空值" })[type] || type;
+}
+
+function renderHandPreview() {
+  if (!state.save) return;
+  const query = els.handSearch.value.trim().toLowerCase();
+  const bagFilter = els.handBag.value;
+  const cards = state.save.cards
+    .filter((card) => card.in_inventory)
+    .filter((card) => bagFilter === "" || String(card.bag) === bagFilter)
+    .filter((card) => {
+      const haystack = `${card.name} ${card.id} ${card.title} ${(card.tags || []).join(" ")}`.toLowerCase();
+      return !query || haystack.includes(query);
+    })
+    .sort((a, b) => Number(a.bag) - Number(b.bag)
+      || Number(a.bagpos) - Number(b.bagpos)
+      || Number(a.uid) - Number(b.uid));
+
+  const groups = new Map();
+  cards.forEach((card) => {
+    const key = String(card.bag);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(card);
+  });
+  els.handGroups.innerHTML = cards.length ? [...groups.entries()].map(([bag, bagCards]) => `
+    <section class="hand-bag-section">
+      <div class="hand-bag-heading">
+        <div><span class="eyebrow">BAG ${escapeHtml(bag)}</span><h3>${bagName(bag)}</h3></div>
+        <span class="count-pill">${bagCards.length}</span>
+      </div>
+      <div class="hand-card-grid">
+        ${bagCards.map(renderPreviewCard).join("")}
+      </div>
+    </section>`).join("") : '<div class="empty-preview">没有匹配的手牌或背包卡牌。</div>';
+  els.handFoot.textContent = `当前显示 ${cards.length} 个已分配袋位的卡牌实例。`;
+}
+
+function renderPreviewCard(card) {
+  return `
+    <article class="preview-card rarity-${card.rare}">
+      <div class="preview-card-top">
+        <span class="preview-glyph">${escapeHtml(card.name.slice(0, 1) || "?")}</span>
+        <span class="rare-pill rare-${card.rare}">${rareName(card.rare)}</span>
+      </div>
+      <div class="preview-card-copy">
+        <small>${escapeHtml(card.title || typeName(card.type))}</small>
+        <h4>${escapeHtml(card.name)}</h4>
+        <p>${escapeHtml(card.text || "暂无卡牌描述")}</p>
+      </div>
+      <div class="tag-row">
+        ${(card.tags || []).slice(0, 3).map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}
+      </div>
+      <footer>
+        <span>UID ${escapeHtml(card.uid)}</span>
+        <strong>位 ${escapeHtml(card.bagpos)}${Number(card.count) > 1 ? ` · ×${escapeHtml(card.count)}` : ""}</strong>
+      </footer>
+    </article>`;
+}
+
+function bagName(bag) {
+  return String(bag) === "0" ? "当前手牌 · 袋 0" : `背包分组 · 袋 ${escapeHtml(bag)}`;
 }
 
 function renderInventory() {
@@ -356,7 +466,7 @@ async function restoreBackup(backupId) {
 
 function selectTab(name) {
   document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === name));
-  ["inventory", "catalog", "backups"].forEach((tabName) => {
+  ["overview", "hand", "inventory", "catalog", "backups"].forEach((tabName) => {
     els[`${tabName}Tab`].classList.toggle("hidden", tabName !== name);
   });
   if (name === "catalog" && !state.catalog.length) loadCatalog();

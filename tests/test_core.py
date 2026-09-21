@@ -19,6 +19,7 @@ from server import (  # noqa: E402
     place_card_in_inventory,
     remove_card_uid,
     save_summary,
+    save_parameters,
     set_card_count,
 )
 
@@ -120,6 +121,20 @@ class SaveMutationTests(unittest.TestCase):
         data = copy.deepcopy(self.sample)
         with self.assertRaises(EditorError):
             add_card(data, {"id": 123, "name": "唯一卡", "is_only": True}, 1)
+
+    def test_save_parameters_exposes_scalars_collections_and_counters(self):
+        data = copy.deepcopy(self.sample)
+        data["difficulty"] = 2
+        data["success"] = False
+        data["counter"] = {"7000001": 8}
+        data["global_counter_cacher"] = {"7200001": 3}
+        result = save_parameters(data)
+        by_key = {item["key"]: item for item in result["values"]}
+        self.assertEqual(by_key["difficulty"]["label"], "难度")
+        self.assertEqual(by_key["counter.7000001"]["value"], 8)
+        self.assertEqual(by_key["global_counter_cacher.7200001"]["group"], "全局计数器")
+        collections = {item["key"]: item for item in result["collections"]}
+        self.assertEqual(collections["cards"]["count"], 1)
 
 
 class RelaxedJsonTests(unittest.TestCase):

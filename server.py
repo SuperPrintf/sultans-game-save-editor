@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 
-APP_VERSION = "1.0.2"
+APP_VERSION = "1.1.0"
 APP_ROOT = Path(__file__).resolve().parent
 STATIC_ROOT = APP_ROOT / "static"
 BACKUP_ROOT = APP_ROOT / "backups"
@@ -86,6 +86,59 @@ SAVE_ID_RE = re.compile(
     r"^(?P<account>[A-Za-z0-9_-]+):(?P<rel>auto_save\.json|USERARCHIVE/\d{3}\.json|round_\d+(?:_end)?\.json)$"
 )
 SAFE_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
+
+PARAMETER_LABELS = {
+    "configId": "配置编号",
+    "configVersion": "配置版本",
+    "name": "存档角色名",
+    "difficulty": "难度",
+    "round": "当前回合",
+    "min_round": "最低回合",
+    "saveTime": "存档时间",
+    "card_uid_index": "下一卡牌 UID",
+    "rite_uid_index": "下一仪式 UID",
+    "sudan_box_show": "显示苏丹卡盒",
+    "story_unshow": "隐藏故事",
+    "prestige_unshow": "隐藏威望",
+    "deadline_unshow": "隐藏期限",
+    "helpbtn_unshow": "隐藏帮助按钮",
+    "location_icon_show": "地点图标状态",
+    "change_desk_bg": "桌面背景",
+    "after_round_auto_sort": "回合后自动整理",
+    "sudan_card_init_life": "苏丹卡初始期限",
+    "sudan_redraw_count": "苏丹卡重抽次数",
+    "sudan_redraw_times_per_round": "每回合重抽上限",
+    "sudan_redraw_times": "当前可重抽次数",
+    "sudan_redraw_times_recovery_round": "重抽恢复回合",
+    "wizard_first_show": "已显示首次引导",
+    "success": "通关状态",
+    "over_reason": "结束原因代码",
+    "BagIndex": "当前袋索引",
+    "rite_auto_result": "仪式自动结算",
+    "disable_auto_gen_sudan_card": "禁用自动生成苏丹卡",
+    "end_open": "终局开启",
+    "is_armageddon": "末日状态",
+    "armageddon_rite_id": "末日仪式 ID",
+}
+
+COLLECTION_LABELS = {
+    "cards": "顶层卡牌实例",
+    "rites": "仪式实例",
+    "pins": "固定项目",
+    "sudan_pool_cards": "苏丹卡池实例",
+    "sudan_card_pool": "苏丹卡池",
+    "only_cards": "唯一卡记录",
+    "only_rites": "唯一仪式记录",
+    "event_status": "事件状态",
+    "delay_ops": "延迟操作",
+    "end_rites": "已结束仪式",
+    "gen_cards": "已生成卡牌种类",
+    "gen_tags": "已生成标签",
+    "timing_rounds": "计时回合记录",
+    "notes": "回合笔记",
+    "cached_event": "缓存事件",
+    "last_round_rite_data": "上一回合仪式数据",
+}
 
 
 class EditorError(Exception):
@@ -229,16 +282,82 @@ def teasing_count(data: dict[str, Any]) -> int:
 
 def save_summary(data: dict[str, Any]) -> dict[str, Any]:
     cards = data.get("cards", [])
+    rites = data.get("rites", [])
     return {
         "config_id": data.get("configId"),
         "name": data.get("name", "未命名"),
         "round": data.get("round"),
         "save_time": data.get("saveTime", ""),
         "card_instances": len(cards) if isinstance(cards, list) else 0,
+        "hand_instances": sum(
+            1 for card in cards if isinstance(card, dict) and card_is_in_inventory(card)
+        ) if isinstance(cards, list) else 0,
+        "rite_instances": len(rites) if isinstance(rites, list) else 0,
+        "event_states": len(data.get("event_status", {}))
+        if isinstance(data.get("event_status"), dict)
+        else 0,
+        "notes": len(data.get("notes", []))
+        if isinstance(data.get("notes"), list)
+        else 0,
         "slander": slander_count(data),
         "teasing": teasing_count(data),
         "card_uid_index": data.get("card_uid_index"),
     }
+
+
+def parameter_value_type(value: Any) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, (int, float)):
+        return "number"
+    return "string"
+
+
+def save_parameters(data: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    values: list[dict[str, Any]] = []
+    collections: list[dict[str, Any]] = []
+    for key, value in data.items():
+        if value is None or isinstance(value, (str, int, float, bool)):
+            values.append(
+                {
+                    "group": "基础参数",
+                    "key": key,
+                    "label": PARAMETER_LABELS.get(key, key),
+                    "value": value,
+                    "type": parameter_value_type(value),
+                }
+            )
+        elif isinstance(value, (list, dict)):
+            collections.append(
+                {
+                    "key": key,
+                    "label": COLLECTION_LABELS.get(key, key),
+                    "kind": "数组" if isinstance(value, list) else "对象",
+                    "count": len(value),
+                }
+            )
+
+    for source_key, group in (
+        ("counter", "剧情计数器"),
+        ("global_counter_cacher", "全局计数器"),
+    ):
+        source = data.get(source_key)
+        if not isinstance(source, dict):
+            continue
+        for key, value in source.items():
+            if value is None or isinstance(value, (str, int, float, bool)):
+                values.append(
+                    {
+                        "group": group,
+                        "key": f"{source_key}.{key}",
+                        "label": str(key),
+                        "value": value,
+                        "type": parameter_value_type(value),
+                    }
+                )
+    return {"values": values, "collections": collections}
 
 
 def remove_card_from_equips(cards: list[Any], card_id: int) -> tuple[list[Any], int]:
@@ -557,6 +676,7 @@ class SaveStore:
                     "in_inventory": card_is_in_inventory(card),
                     "name": meta.get("name", f"未知卡牌 {card_id}"),
                     "title": meta.get("title", ""),
+                    "text": meta.get("text", ""),
                     "type": meta.get("type", ""),
                     "rare": meta.get("rare", 0),
                     "tags": meta.get("tags", []),
@@ -571,6 +691,7 @@ class SaveStore:
             "path": str(path),
             "summary": save_summary(data),
             "cards": inventory,
+            "parameters": save_parameters(data),
         }
 
     def search_catalog(

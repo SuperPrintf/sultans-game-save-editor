@@ -117,12 +117,71 @@
           </section>
 
           <nav class="tabs panel" aria-label="修改器页面">
-            <button class="tab active" data-tab="inventory" type="button">卡牌实例</button>
+            <button class="tab active" data-tab="overview" type="button">存档参数</button>
+            <button class="tab" data-tab="hand" type="button">手牌预览</button>
+            <button class="tab" data-tab="inventory" type="button">卡牌实例</button>
             <button class="tab" data-tab="catalog" type="button">添加卡牌</button>
             <button class="tab" data-tab="backups" type="button">备份与恢复</button>
           </nav>
 
-          <section id="inventoryTab" class="tab-panel panel">
+          <section id="overviewTab" class="tab-panel panel">
+            <div class="content-heading">
+              <div>
+                <p class="eyebrow">SAVE PARAMETERS</p>
+                <h2>存档参数</h2>
+                <p>只读查看基础属性、集合规模、剧情计数器与全局计数器。</p>
+              </div>
+              <div class="toolbar">
+                <label class="search-box">
+                  <span aria-hidden="true">⌕</span>
+                  <input id="parameterSearch" type="search" placeholder="参数名称、字段或数值" />
+                </label>
+              </div>
+            </div>
+            <div id="collectionGrid" class="collection-grid"></div>
+            <div class="table-wrap parameter-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>分组</th>
+                    <th>参数</th>
+                    <th>原始字段</th>
+                    <th>类型</th>
+                    <th>当前值</th>
+                  </tr>
+                </thead>
+                <tbody id="parameterBody"></tbody>
+              </table>
+            </div>
+            <p id="parameterFoot" class="table-foot"></p>
+          </section>
+
+          <section id="handTab" class="tab-panel panel hidden">
+            <div class="content-heading">
+              <div>
+                <p class="eyebrow">HAND PREVIEW</p>
+                <h2>手牌与背包预览</h2>
+                <p>显示已分配正数袋位的卡牌，并排除标记为已移除的历史实例。</p>
+              </div>
+              <div class="toolbar">
+                <label class="search-box">
+                  <span aria-hidden="true">⌕</span>
+                  <input id="handSearch" type="search" placeholder="名称、ID 或标签" />
+                </label>
+                <select id="handBag" aria-label="按袋位筛选">
+                  <option value="">全部袋位</option>
+                  <option value="0">手牌 · 袋 0</option>
+                  <option value="1">袋 1</option>
+                  <option value="2">袋 2</option>
+                  <option value="3">袋 3</option>
+                </select>
+              </div>
+            </div>
+            <div id="handGroups" class="hand-groups"></div>
+            <p id="handFoot" class="table-foot"></p>
+          </section>
+
+          <section id="inventoryTab" class="tab-panel panel hidden">
             <div class="content-heading">
               <div>
                 <p class="eyebrow">INVENTORY</p>
