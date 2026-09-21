@@ -13,10 +13,11 @@ from server import (  # noqa: E402
     SaveStore,
     add_card,
     cleanup_slander,
+    increase_gold,
     load_relaxed_json,
-    next_bag_position,
     next_card_uid,
     place_card_in_inventory,
+    repair_card_visibility,
     remove_card_uid,
     save_card_instances,
     save_summary,
@@ -60,24 +61,25 @@ class SaveMutationTests(unittest.TestCase):
             },
             3,
         )
-        self.assertEqual(result, {"uid": 11, "count": 3, "bag": 0, "bagpos": 2})
+        self.assertEqual(
+            result,
+            {
+                "uid": 11,
+                "count": 3,
+                "added": 3,
+                "bag": 3,
+                "bagpos": 2,
+                "merged": False,
+            },
+        )
         self.assertEqual(data["card_uid_index"], 12)
         self.assertEqual(data["cards"][-1]["id"], 456)
         self.assertEqual(data["cards"][-1]["count"], 3)
         self.assertEqual(data["cards"][-1]["bagpos"], 2)
+        self.assertEqual(data["cards"][-1]["bag"], 3)
+        self.assertEqual(data["cards"][-1]["life"], 1)
+        self.assertEqual(data["cards"][-1]["tag"], {"own": 1})
         self.assertEqual(data["gen_cards"]["456"], 3)
-
-    def test_next_bag_position_ignores_hidden_and_discarded_history(self):
-        data = copy.deepcopy(self.sample)
-        data["cards"].extend(
-            [
-                {"uid": 20, "id": 1, "count": 1, "bag": 0, "bagpos": 0, "tag": {}},
-                {"uid": 21, "id": 2, "count": 1, "bag": 0, "bagpos": 99, "tag": {"own": -1}},
-                {"uid": 22, "id": 3, "count": 1, "bag": 0, "bagpos": 4, "tag": {}},
-                {"uid": 23, "id": 4, "count": 1, "bag": 1, "bagpos": 8, "tag": {}},
-            ]
-        )
-        self.assertEqual(next_bag_position(data), 5)
 
     def test_next_uid_never_collides_with_existing_cards(self):
         data = copy.deepcopy(self.sample)
@@ -115,8 +117,65 @@ class SaveMutationTests(unittest.TestCase):
             {"uid": 20, "id": 456, "count": 1, "bag": 0, "bagpos": 0, "tag": {}}
         )
         result = place_card_in_inventory(data, 20)
-        self.assertEqual(result, {"uid": 20, "bag": 0, "bagpos": 2})
+        self.assertEqual(result, {"uid": 20, "bag": 3, "bagpos": 2})
         self.assertEqual(data["cards"][-1]["bagpos"], 2)
+        self.assertEqual(data["cards"][-1]["life"], 1)
+        self.assertEqual(data["cards"][-1]["tag"], {"own": 1})
+
+    def test_increase_gold_updates_visible_stack(self):
+        data = copy.deepcopy(self.sample)
+        data["cards"].append(
+            {
+                "uid": 20,
+                "id": 2000029,
+                "count": 5,
+                "life": 0,
+                "tag": {},
+                "bag": 0,
+                "bagpos": 1,
+            }
+        )
+        result = increase_gold(
+            data,
+            {"id": 2000029, "name": "金币", "stackable": True},
+            10,
+        )
+        self.assertEqual(result["old_count"], 5)
+        self.assertEqual(result["count"], 15)
+        self.assertFalse(result["created"])
+        self.assertEqual(data["cards"][-1]["count"], 15)
+
+    def test_repair_pre_121_invisible_cards(self):
+        data = copy.deepcopy(self.sample)
+        data["cards"].extend(
+            [
+                {
+                    "uid": 20,
+                    "id": 2000818,
+                    "count": 1,
+                    "life": 0,
+                    "tag": {},
+                    "bag": 0,
+                    "bagpos": 26,
+                },
+                {
+                    "uid": 21,
+                    "id": 2000818,
+                    "count": 1,
+                    "life": 0,
+                    "tag": {},
+                    "bag": 0,
+                    "bagpos": 0,
+                },
+            ]
+        )
+        result = repair_card_visibility(data, 2000818)
+        self.assertEqual(result, {"repaired": 1, "uids": [20]})
+        repaired = data["cards"][-2]
+        self.assertEqual(
+            (repaired["life"], repaired["tag"], repaired["bag"], repaired["bagpos"]),
+            (1, {"own": 1}, 3, 2),
+        )
 
     def test_unique_card_cannot_be_duplicated(self):
         data = copy.deepcopy(self.sample)

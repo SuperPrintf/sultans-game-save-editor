@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.2.1"
 APP_ROOT = Path(__file__).resolve().parent
 STATIC_ROOT = APP_ROOT / "static"
 BACKUP_ROOT = APP_ROOT / "backups"
@@ -81,6 +81,9 @@ GAME_ROOT = discover_game_root()
 CARD_CONFIG = card_config_for(GAME_ROOT)
 
 SLANDER_CARD_ID = 2000168
+GOLD_CARD_ID = 2000029
+VISIBLE_CARD_BAG = 3
+VISIBLE_CARD_POSITION = 2
 TEASING_RITE_IDS = {5001002, 5001016, 5001018, 5008120}
 SAVE_ID_RE = re.compile(
     r"^(?P<account>[A-Za-z0-9_-]+):(?P<rel>auto_save\.json|USERARCHIVE/\d{3}\.json|round_\d+(?:_end)?\.json)$"
@@ -696,25 +699,27 @@ def save_card_instances(
     return instances
 
 
-def next_bag_position(data: dict[str, Any], bag: int = 0) -> int:
-    """Allocate the next visible slot, ignoring discarded historical records."""
+def place_card_fields(card: dict[str, Any]) -> None:
+    """Apply the game's visible-card fields used by its add-to-hand action.
 
-    positions: list[int] = []
-    for card in data.get("cards", []):
-        if not isinstance(card, dict) or card.get("bag", 0) != bag:
-            continue
-        if not card_is_in_inventory(card):
-            continue
-        try:
-            positions.append(int(card.get("bagpos", 0) or 0))
-        except (TypeError, ValueError):
-            continue
-    return max(positions, default=0) + 1
+    ``bagpos`` is a classification/sort position and is not a globally unique
+    slot number. Incrementing it beyond the game's known rows creates valid
+    JSON that the hand UI does not render.
+    """
+
+    card["life"] = max(1, int(card.get("life", 0) or 0))
+    tag = card.get("tag")
+    if not isinstance(tag, dict):
+        tag = {}
+        card["tag"] = tag
+    tag["own"] = 1
+    card["bag"] = VISIBLE_CARD_BAG
+    card["bagpos"] = VISIBLE_CARD_POSITION
 
 
 def add_card(
     data: dict[str, Any], card: dict[str, Any], count: int = 1
-) -> dict[str, int]:
+) -> dict[str, Any]:
     if not 1 <= count <= 999:
         raise EditorError("卡牌数量必须在 1 到 999 之间。")
     inventory = data.setdefault("cards", [])
@@ -726,24 +731,46 @@ def add_card(
     ):
         raise EditorError("这是一张唯一卡，当前存档已经拥有，未重复添加。")
 
+    if card.get("stackable"):
+        for existing in inventory:
+            if not isinstance(existing, dict) or existing.get("id") != card_id:
+                continue
+            if not card_is_in_inventory(existing):
+                continue
+            old_count = int(existing.get("count", 1) or 1)
+            new_count = old_count + count
+            if new_count > 999:
+                raise EditorError("合并后的卡牌数量不能超过 999。")
+            existing["count"] = new_count
+            generated = data.setdefault("gen_cards", {})
+            if isinstance(generated, dict):
+                key = str(card_id)
+                generated[key] = int(generated.get(key, 0) or 0) + count
+            return {
+                "uid": int(existing.get("uid", 0) or 0),
+                "count": new_count,
+                "added": count,
+                "bag": int(existing.get("bag", 0) or 0),
+                "bagpos": int(existing.get("bagpos", 0) or 0),
+                "merged": True,
+            }
+
     uid = next_card_uid(data)
-    bag_position = next_bag_position(data)
-    inventory.append(
-        {
-            "uid": uid,
-            "id": card_id,
-            "count": count,
-            "life": 0,
-            "rareup": 0,
-            "tag": {},
-            "equip_slots": [],
-            "equips": [],
-            "bag": 0,
-            "bagpos": bag_position,
-            "custom_name": "",
-            "custom_text": "",
-        }
-    )
+    instance = {
+        "uid": uid,
+        "id": card_id,
+        "count": count,
+        "life": 1,
+        "rareup": 0,
+        "tag": {"own": 1},
+        "equip_slots": [],
+        "equips": [],
+        "bag": VISIBLE_CARD_BAG,
+        "bagpos": VISIBLE_CARD_POSITION,
+        "custom_name": "",
+        "custom_text": "",
+    }
+    inventory.append(instance)
     data["card_uid_index"] = uid + 1
     generated = data.setdefault("gen_cards", {})
     if isinstance(generated, dict):
@@ -753,7 +780,69 @@ def add_card(
         only_cards = data.setdefault("only_cards", [])
         if isinstance(only_cards, list) and card_id not in only_cards:
             only_cards.append(card_id)
-    return {"uid": uid, "count": count, "bag": 0, "bagpos": bag_position}
+    return {
+        "uid": uid,
+        "count": count,
+        "added": count,
+        "bag": VISIBLE_CARD_BAG,
+        "bagpos": VISIBLE_CARD_POSITION,
+        "merged": False,
+    }
+
+
+def increase_gold(
+    data: dict[str, Any], gold_card: dict[str, Any], amount: int = 10
+) -> dict[str, Any]:
+    """Increase the visible gold stack, creating it only when absent."""
+
+    if not 1 <= amount <= 999:
+        raise EditorError("金币增量必须在 1 到 999 之间。")
+    inventory = data.get("cards")
+    if not isinstance(inventory, list):
+        raise EditorError("存档中的 cards 字段格式异常。")
+    for card in inventory:
+        if not isinstance(card, dict) or card.get("id") != GOLD_CARD_ID:
+            continue
+        if not card_is_in_inventory(card):
+            continue
+        old_count = int(card.get("count", 1) or 1)
+        new_count = old_count + amount
+        if new_count > 999:
+            raise EditorError("金币总数不能超过 999。")
+        card["count"] = new_count
+        return {
+            "uid": int(card.get("uid", 0) or 0),
+            "old_count": old_count,
+            "count": new_count,
+            "added": amount,
+            "created": False,
+        }
+
+    created = add_card(data, gold_card, amount)
+    return {**created, "old_count": 0, "created": True}
+
+
+def repair_card_visibility(
+    data: dict[str, Any], card_id: int, minimum_bad_position: int = 26
+) -> dict[str, Any]:
+    """Repair cards written by pre-1.2.1 editors with ever-growing bagpos."""
+
+    repaired_uids: list[int] = []
+    cards = data.get("cards")
+    if not isinstance(cards, list):
+        raise EditorError("存档中的 cards 字段格式异常。")
+    for card in cards:
+        if not isinstance(card, dict) or card.get("id") != card_id:
+            continue
+        try:
+            bagpos = int(card.get("bagpos", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if bagpos < minimum_bad_position:
+            continue
+        place_card_fields(card)
+        repaired_uids.append(int(card.get("uid", 0) or 0))
+    return {"repaired": len(repaired_uids), "uids": repaired_uids}
 
 
 def find_top_level_card(data: dict[str, Any], uid: int) -> dict[str, Any]:
@@ -780,13 +869,12 @@ def remove_card_uid(data: dict[str, Any], uid: int) -> dict[str, int]:
 
 def place_card_in_inventory(data: dict[str, Any], uid: int) -> dict[str, int]:
     card = find_top_level_card(data, uid)
-    bag_position = next_bag_position(data)
-    card["bag"] = 0
-    card["bagpos"] = bag_position
-    tag = card.get("tag")
-    if isinstance(tag, dict) and tag.get("own") == -1:
-        tag.pop("own", None)
-    return {"uid": uid, "bag": 0, "bagpos": bag_position}
+    place_card_fields(card)
+    return {
+        "uid": uid,
+        "bag": VISIBLE_CARD_BAG,
+        "bagpos": VISIBLE_CARD_POSITION,
+    }
 
 
 def set_card_count(data: dict[str, Any], uid: int, count: int) -> dict[str, int]:
@@ -1180,6 +1268,16 @@ class EditorHandler(BaseHTTPRequestHandler):
 
             if action == "cleanup_slander":
                 result = self.store.mutate(save_id, sync_linked, cleanup_slander)
+            elif action == "increase_gold":
+                amount = int(payload.get("amount", 10))
+                gold_card = self.store.catalog.get(GOLD_CARD_ID)
+                if not gold_card:
+                    raise EditorError(f"金币卡牌 ID {GOLD_CARD_ID} 不存在。")
+                result = self.store.mutate(
+                    save_id,
+                    sync_linked,
+                    lambda data: increase_gold(data, gold_card, amount),
+                )
             elif action == "add_card":
                 card_id = int(payload.get("card_id"))
                 count = int(payload.get("count", 1))

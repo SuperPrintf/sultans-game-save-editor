@@ -13,7 +13,7 @@ document.addEventListener("DOMContentLoaded", () => {
   [
     "connectionBadge", "refreshButton", "saveCount", "saveList", "syncLinked",
     "saveDirectory", "emptyState", "editor", "saveKind", "saveTitle", "savePath",
-    "dirtyBadge", "metrics", "cleanupButton", "goldAccessoryButton", "inventorySearch",
+    "dirtyBadge", "metrics", "cleanupButton", "increaseGoldButton", "inventorySearch",
     "inventoryRare", "inventoryState", "inventoryBody", "inventoryFoot", "catalogSearch", "catalogRare",
     "catalogType", "catalogGrid", "catalogFoot", "backupList", "reloadBackups",
     "confirmDialog", "confirmTitle", "confirmMessage", "confirmCancel", "confirmAccept",
@@ -24,7 +24,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   els.refreshButton.addEventListener("click", () => loadIndex(true));
   els.cleanupButton.addEventListener("click", cleanupSlander);
-  els.goldAccessoryButton.addEventListener("click", () => addCard(2000818, 1));
+  els.increaseGoldButton.addEventListener("click", () => increaseGold(10));
   els.inventorySearch.addEventListener("input", renderInventory);
   els.inventoryRare.addEventListener("change", renderInventory);
   els.inventoryState.addEventListener("change", renderInventory);
@@ -393,6 +393,13 @@ async function addCard(cardId, count) {
     return;
   }
   await performAction({ action: "add_card", card_id: cardId, count }, `已添加卡牌 ${cardId} ×${count}`);
+}
+
+async function increaseGold(amount) {
+  await performAction(
+    { action: "increase_gold", amount },
+    `金币数量已增加 ${amount}`,
+  );
 }
 
 async function setCardCount(uid, count) {
