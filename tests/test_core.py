@@ -18,6 +18,7 @@ from server import (  # noqa: E402
     next_card_uid,
     place_card_in_inventory,
     remove_card_uid,
+    save_card_instances,
     save_summary,
     save_parameters,
     set_card_count,
@@ -135,6 +136,73 @@ class SaveMutationTests(unittest.TestCase):
         self.assertEqual(by_key["global_counter_cacher.7200001"]["group"], "全局计数器")
         collections = {item["key"]: item for item in result["collections"]}
         self.assertEqual(collections["cards"]["count"], 1)
+
+    def test_card_instances_include_equipment_rites_pool_and_status_tags(self):
+        data = copy.deepcopy(self.sample)
+        data["cards"][0]["equips"] = [
+            {
+                "uid": 20,
+                "id": 456,
+                "count": 1,
+                "tag": {"own": 1, "weapon_keep": 1},
+                "equips": [],
+                "bag": 0,
+                "bagpos": 0,
+            }
+        ]
+        data["cards"].append(
+            {
+                "uid": 21,
+                "id": 789,
+                "count": 1,
+                "tag": {"reading": 1, "lock_9": 1},
+                "equips": [],
+                "bag": 0,
+                "bagpos": 3,
+            }
+        )
+        data["rites"] = [
+            {
+                "uid": 30,
+                "id": 5000001,
+                "start": True,
+                "is_show": True,
+                "life": 2,
+                "cards": [{"uid": 22, "id": 789, "count": 1, "tag": {}}],
+            }
+        ]
+        data["sudan_card_pool"] = [
+            {
+                "uid": 23,
+                "id": 2010001,
+                "count": 1,
+                "tag": {"sudan_pool_index": 8},
+            }
+        ]
+        data["notes"] = [{"uid": 999, "id": 789, "count": 1}]
+        catalog = {
+            123: {"name": "角色", "tags": [], "rare": 1},
+            456: {"name": "佩剑", "tags": ["武器"], "rare": 2},
+            789: {"name": "读物", "tags": [], "rare": 1},
+            2010001: {"name": "杀戮", "tags": [], "rare": 1},
+        }
+
+        result = save_card_instances(
+            data,
+            catalog,
+            lambda rite_id: {"id": rite_id, "name": "测试仪式"},
+        )
+        by_uid = {card["uid"]: card for card in result}
+        self.assertEqual(set(by_uid), {10, 20, 21, 22, 23})
+        self.assertEqual(by_uid[20]["state"]["code"], "equipped")
+        self.assertIn("装备于 角色", by_uid[20]["state"]["relations"][0])
+        self.assertIn("武器位", by_uid[20]["state"]["relations"][0])
+        self.assertFalse(by_uid[20]["editable"])
+        self.assertEqual(by_uid[21]["state"]["code"], "reading")
+        self.assertIn("locked", [flag["code"] for flag in by_uid[21]["state"]["flags"]])
+        self.assertEqual(by_uid[22]["state"]["code"], "rite")
+        self.assertIn("《测试仪式》", by_uid[22]["state"]["relations"][0])
+        self.assertEqual(by_uid[23]["state"]["code"], "sudan_pool")
 
 
 class RelaxedJsonTests(unittest.TestCase):

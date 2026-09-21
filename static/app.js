@@ -14,7 +14,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "connectionBadge", "refreshButton", "saveCount", "saveList", "syncLinked",
     "saveDirectory", "emptyState", "editor", "saveKind", "saveTitle", "savePath",
     "dirtyBadge", "metrics", "cleanupButton", "goldAccessoryButton", "inventorySearch",
-    "inventoryRare", "inventoryBody", "inventoryFoot", "catalogSearch", "catalogRare",
+    "inventoryRare", "inventoryState", "inventoryBody", "inventoryFoot", "catalogSearch", "catalogRare",
     "catalogType", "catalogGrid", "catalogFoot", "backupList", "reloadBackups",
     "confirmDialog", "confirmTitle", "confirmMessage", "confirmCancel", "confirmAccept",
     "toastRegion", "overviewTab", "handTab", "inventoryTab", "catalogTab", "backupsTab",
@@ -27,6 +27,7 @@ document.addEventListener("DOMContentLoaded", () => {
   els.goldAccessoryButton.addEventListener("click", () => addCard(2000818, 1));
   els.inventorySearch.addEventListener("input", renderInventory);
   els.inventoryRare.addEventListener("change", renderInventory);
+  els.inventoryState.addEventListener("change", renderInventory);
   els.parameterSearch.addEventListener("input", renderParameters);
   els.handSearch.addEventListener("input", renderHandPreview);
   els.handBag.addEventListener("change", renderHandPreview);
@@ -137,6 +138,8 @@ function renderSave() {
     metric("当前回合", summary.round ?? "—"),
     metric("卡牌实例", summary.card_instances ?? 0),
     metric("在袋卡牌", summary.hand_instances ?? 0),
+    metric("已装备", summary.equipped_instances ?? 0),
+    metric("仪式占用", summary.rite_card_instances ?? 0),
     metric("仪式实例", summary.rite_instances ?? 0),
     metric("谗言", summary.slander ?? 0, summary.slander > 0),
     metric("待处理戏弄", summary.teasing ?? 0, summary.teasing > 0),
@@ -255,9 +258,16 @@ function renderInventory() {
   if (!state.save) return;
   const query = els.inventorySearch.value.trim().toLowerCase();
   const rare = els.inventoryRare.value;
+  const status = els.inventoryState.value;
   const matches = state.save.cards.filter((card) => {
-    const haystack = `${card.name} ${card.id} ${card.title} ${(card.tags || []).join(" ")}`.toLowerCase();
-    return (!query || haystack.includes(query)) && (!rare || String(card.rare) === rare);
+    const instanceTags = (card.instance_tags || []).map((tag) => `${tag.key}=${tag.value}`).join(" ");
+    const flags = (card.state?.flags || []).map((flag) => `${flag.label} ${flag.detail}`).join(" ");
+    const relations = (card.state?.relations || []).join(" ");
+    const haystack = `${card.name} ${card.id} ${card.uid} ${card.title} ${(card.tags || []).join(" ")} ${instanceTags} ${card.state?.label || ""} ${flags} ${relations}`.toLowerCase();
+    const statusCodes = [card.state?.code, ...(card.state?.flags || []).map((flag) => flag.code)];
+    return (!query || haystack.includes(query))
+      && (!rare || String(card.rare) === rare)
+      && (!status || statusCodes.includes(status));
   });
   const visible = matches.slice(0, 250);
   els.inventoryBody.innerHTML = visible.length ? visible.map((card) => `
@@ -269,24 +279,25 @@ function renderInventory() {
         </div>
       </td>
       <td><span class="rare-pill rare-${card.rare}">${rareName(card.rare)}</span></td>
-      <td>${card.in_inventory
-        ? `<span class="position-pill">袋 ${card.bag} · 位 ${card.bagpos}</span>`
-        : '<span class="position-pill inactive">未进入手牌</span>'}</td>
+      <td>${renderCardState(card)}</td>
+      <td>${renderCardRelations(card)}</td>
       <td>
-        <div class="count-editor">
+        ${card.editable ? `<div class="count-editor">
           <input class="count-input" type="number" min="1" max="999" value="${card.count}"
             data-count-uid="${card.uid}" aria-label="${escapeAttr(card.name)}的数量" />
           <button class="icon-button" type="button" data-save-count="${card.uid}">保存</button>
-        </div>
+        </div>` : `<span class="readonly-count">×${escapeHtml(card.count)}</span>`}
       </td>
       <td class="align-right">
-        ${card.in_inventory ? "" : `<button class="icon-button" type="button" data-place-uid="${card.uid}"
-          data-place-name="${escapeAttr(card.name)}">放入手牌</button>`}
-        <button class="icon-button danger" type="button" data-remove-uid="${card.uid}"
-          data-remove-name="${escapeAttr(card.name)}">移除</button>
+        <div class="row-actions">
+        ${card.can_place ? `<button class="icon-button" type="button" data-place-uid="${card.uid}"
+          data-place-name="${escapeAttr(card.name)}">放入手牌</button>` : ""}
+        ${card.editable ? `<button class="icon-button danger" type="button" data-remove-uid="${card.uid}"
+          data-remove-name="${escapeAttr(card.name)}">移除</button>` : '<span class="readonly-label">关联只读</span>'}
+        </div>
       </td>
-    </tr>`).join("") : '<tr><td colspan="5">没有匹配的卡牌。</td></tr>';
-  els.inventoryFoot.textContent = `匹配 ${matches.length} 个实例${matches.length > 250 ? "，当前显示前 250 个" : ""}`;
+    </tr>`).join("") : '<tr><td colspan="6">没有匹配的卡牌。</td></tr>';
+  els.inventoryFoot.textContent = `匹配 ${matches.length} 个当前实例${matches.length > 250 ? "，当前显示前 250 个" : ""}；装备、仪式槽和苏丹卡池中的实例为只读。`;
   els.inventoryBody.querySelectorAll("[data-save-count]").forEach((button) => {
     button.addEventListener("click", () => {
       const input = els.inventoryBody.querySelector(`[data-count-uid="${button.dataset.saveCount}"]`);
@@ -299,6 +310,26 @@ function renderInventory() {
   els.inventoryBody.querySelectorAll("[data-place-uid]").forEach((button) => {
     button.addEventListener("click", () => placeCard(Number(button.dataset.placeUid), button.dataset.placeName));
   });
+}
+
+function renderCardState(card) {
+  const current = card.state || { code: "registered", label: "状态未知", tone: "muted", flags: [] };
+  const flags = (current.flags || []).map((flag) =>
+    `<span class="state-flag flag-${escapeAttr(flag.code)}" title="${escapeAttr(flag.detail || flag.label)}">${escapeHtml(flag.label)}</span>`
+  ).join("");
+  return `<div class="state-stack">
+    <span class="state-pill tone-${escapeAttr(current.tone || "muted")}">${escapeHtml(current.label)}</span>
+    ${flags ? `<div class="state-flags">${flags}</div>` : ""}
+  </div>`;
+}
+
+function renderCardRelations(card) {
+  const relations = card.state?.relations || [];
+  const tags = (card.instance_tags || []).map((tag) => `${tag.key}=${tag.value}`);
+  const lines = [...relations, ...(tags.length ? [`实例标记：${tags.join(" · ")}`] : [])];
+  return lines.length
+    ? `<div class="relation-list">${lines.map((line) => `<span>${escapeHtml(line)}</span>`).join("")}</div>`
+    : '<span class="relation-empty">无额外关联</span>';
 }
 
 async function loadCatalog() {

@@ -186,7 +186,7 @@
               <div>
                 <p class="eyebrow">INVENTORY</p>
                 <h2>当前卡牌实例</h2>
-                <p>显示存档中所有顶层卡牌，包括手牌、背包和已登记实例。</p>
+                <p>解析手牌、装备、事件/仪式槽、苏丹卡池与实例标记；关联容器中的卡牌只读显示。</p>
               </div>
               <div class="toolbar">
                 <label class="search-box">
@@ -200,6 +200,18 @@
                   <option value="2">青铜</option>
                   <option value="1">普通</option>
                 </select>
+                <select id="inventoryState" aria-label="按实例状态筛选">
+                  <option value="">全部状态</option>
+                  <option value="inventory">手牌 / 背包</option>
+                  <option value="equipped">已装备</option>
+                  <option value="rite">事件 / 仪式中</option>
+                  <option value="sudan_pool">苏丹卡池</option>
+                  <option value="reading">阅读中</option>
+                  <option value="locked">锁定</option>
+                  <option value="absorbed">特殊吸附</option>
+                  <option value="lost">已失去记录</option>
+                  <option value="registered">顶层登记</option>
+                </select>
               </div>
             </div>
             <div class="table-wrap">
@@ -208,7 +220,8 @@
                   <tr>
                     <th>卡牌</th>
                     <th>品级</th>
-                    <th>位置</th>
+                    <th>状态</th>
+                    <th>位置 / 关联</th>
                     <th>数量</th>
                     <th class="align-right">操作</th>
                   </tr>

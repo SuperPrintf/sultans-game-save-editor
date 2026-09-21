@@ -428,7 +428,7 @@ button {
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(6, minmax(76px, 1fr));
+  grid-template-columns: repeat(4, minmax(76px, 1fr));
   gap: 10px;
 }
 
@@ -793,6 +793,116 @@ tbody tr:hover td {
   color: #e2ad8a;
   border-color: rgba(195, 104, 68, 0.42);
   background: rgba(195, 104, 68, 0.1);
+}
+
+.state-stack,
+.relation-list {
+  display: grid;
+  justify-items: start;
+  gap: 5px;
+}
+
+.state-pill,
+.state-flag {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.state-pill {
+  min-height: 27px;
+  padding: 3px 9px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.state-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.state-flag {
+  padding: 2px 6px;
+  color: var(--muted);
+  font-size: 9px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.tone-gold {
+  color: var(--gold-bright);
+  border-color: rgba(215, 183, 113, 0.45);
+  background: rgba(215, 183, 113, 0.1);
+}
+
+.tone-green {
+  color: #91d6b4;
+  border-color: rgba(103, 176, 141, 0.42);
+  background: rgba(103, 176, 141, 0.09);
+}
+
+.tone-violet {
+  color: #c8b2df;
+  border-color: rgba(151, 119, 183, 0.44);
+  background: rgba(151, 119, 183, 0.1);
+}
+
+.tone-blue {
+  color: #b5cee5;
+  border-color: rgba(128, 155, 181, 0.44);
+  background: rgba(128, 155, 181, 0.1);
+}
+
+.tone-danger {
+  color: #ee998f;
+  border-color: rgba(219, 107, 94, 0.44);
+  background: rgba(179, 77, 67, 0.1);
+}
+
+.tone-muted {
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.flag-locked,
+.flag-lost {
+  color: #ee998f;
+  border-color: rgba(219, 107, 94, 0.32);
+}
+
+.flag-reading,
+.flag-equipment-owner {
+  color: #b5cee5;
+  border-color: rgba(128, 155, 181, 0.32);
+}
+
+.relation-list {
+  min-width: 190px;
+  max-width: 360px;
+}
+
+.relation-list span {
+  color: #bbb4a7;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.relation-list span + span {
+  color: var(--muted);
+}
+
+.relation-empty,
+.readonly-label,
+.readonly-count {
+  color: var(--gold-dim);
+  font-size: 10px;
+}
+
+#inventoryTab table {
+  min-width: 1040px;
 }
 
 .collection-grid {

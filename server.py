@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 APP_ROOT = Path(__file__).resolve().parent
 STATIC_ROOT = APP_ROOT / "static"
 BACKUP_ROOT = APP_ROOT / "backups"
@@ -433,6 +433,269 @@ def card_is_in_inventory(card: dict[str, Any]) -> bool:
     return bag_position > 0 and not is_discarded_history
 
 
+EQUIPMENT_SLOT_LABELS = {
+    "武器": "武器位",
+    "服装": "服装位",
+    "饰品": "饰品位",
+    "动物管理": "驯兽位",
+}
+
+
+def _card_metadata(
+    card: dict[str, Any], catalog: dict[int, dict[str, Any]]
+) -> tuple[int, dict[str, Any]]:
+    card_id = int(card.get("id", 0) or 0)
+    return card_id, catalog.get(card_id, {})
+
+
+def _equipment_slot_label(meta: dict[str, Any], index: int) -> str:
+    tags = set(meta.get("tags", []))
+    for tag, label in EQUIPMENT_SLOT_LABELS.items():
+        if tag in tags:
+            return label
+    return f"装备栏 {index + 1}"
+
+
+def save_card_instances(
+    data: dict[str, Any],
+    catalog: dict[int, dict[str, Any]],
+    rite_lookup: Callable[[int], dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Collect live card instances and explain their save-container state.
+
+    Equipped cards and cards used by rites are moved out of the top-level
+    ``cards`` array. Historical snapshots under ``notes`` are not live and are
+    intentionally excluded.
+    """
+
+    instances: list[dict[str, Any]] = []
+    seen_uids: set[int] = set()
+
+    def append_instance(
+        card: Any,
+        source: str,
+        relation: str,
+        *,
+        state_code: str,
+        state_label: str,
+        state_tone: str,
+        extra_flags: list[dict[str, str]] | None = None,
+    ) -> None:
+        if not isinstance(card, dict):
+            return
+        try:
+            uid = int(card.get("uid"))
+        except (TypeError, ValueError):
+            return
+        if uid in seen_uids:
+            return
+        seen_uids.add(uid)
+
+        card_id, meta = _card_metadata(card, catalog)
+        tag = card.get("tag") if isinstance(card.get("tag"), dict) else {}
+        in_inventory = source == "cards" and card_is_in_inventory(card)
+        flags = list(extra_flags or [])
+        lock_tags = [
+            f"{key}={value}"
+            for key, value in tag.items()
+            if str(key).startswith("lock_") and value
+        ]
+        if lock_tags:
+            flags.append(
+                {"code": "locked", "label": "锁定", "detail": "、".join(lock_tags)}
+            )
+        if tag.get("reading"):
+            flags.append({"code": "reading", "label": "阅读中", "detail": "reading=1"})
+        if tag.get("own") == -1:
+            flags.append({"code": "lost", "label": "已失去", "detail": "own=-1"})
+        elif tag.get("own"):
+            flags.append(
+                {"code": "owned", "label": "持有标记", "detail": f"own={tag['own']}"}
+            )
+        if tag.get("adsorb_spec"):
+            flags.append(
+                {
+                    "code": "absorbed",
+                    "label": "特殊吸附",
+                    "detail": f"adsorb_spec={tag['adsorb_spec']}",
+                }
+            )
+        if tag.get("weapon_keep"):
+            flags.append(
+                {
+                    "code": "equipment_kept",
+                    "label": "装备保留",
+                    "detail": f"weapon_keep={tag['weapon_keep']}",
+                }
+            )
+
+        if source == "cards":
+            if tag.get("own") == -1:
+                state_code, state_label, state_tone = "lost", "已失去记录", "danger"
+            elif tag.get("reading"):
+                state_code, state_label, state_tone = "reading", "阅读中", "blue"
+            elif in_inventory:
+                state_code, state_label, state_tone = "inventory", "手牌 / 背包", "green"
+            elif tag.get("adsorb_spec"):
+                state_code, state_label, state_tone = "absorbed", "特殊吸附", "violet"
+
+        bag = card.get("bag", 0)
+        bagpos = card.get("bagpos", 0)
+        relations = [relation] if relation else []
+        if source == "cards" and in_inventory:
+            relations.insert(0, f"袋 {bag} · 位 {bagpos}")
+        elif source == "cards" and (bag or bagpos):
+            relations.append(f"记录位置：袋 {bag} · 位 {bagpos}")
+        life = card.get("life", 0)
+        if life:
+            relations.append(f"期限 / life：{life}")
+
+        instance_tags = [
+            {"key": str(key), "value": value}
+            for key, value in tag.items()
+            if key in {"own", "reading", "adsorb_spec", "weapon_keep", "collected"}
+            or str(key).startswith("lock_")
+        ]
+        editable = source == "cards"
+        instances.append(
+            {
+                "uid": uid,
+                "id": card_id,
+                "count": card.get("count", 1),
+                "life": life,
+                "bag": bag,
+                "bagpos": bagpos,
+                "in_inventory": in_inventory,
+                "source": source,
+                "editable": editable,
+                "can_place": editable and not in_inventory,
+                "name": meta.get("name", f"未知卡牌 {card_id}"),
+                "title": meta.get("title", ""),
+                "text": meta.get("text", ""),
+                "type": meta.get("type", ""),
+                "rare": meta.get("rare", 0),
+                "tags": meta.get("tags", []),
+                "instance_tags": instance_tags,
+                "stackable": meta.get("stackable", False),
+                "is_only": meta.get("is_only", False),
+                "state": {
+                    "code": state_code,
+                    "label": state_label,
+                    "tone": state_tone,
+                    "flags": flags,
+                    "relations": relations,
+                },
+            }
+        )
+
+    def append_equips(equips: Any, owner: dict[str, Any]) -> None:
+        if not isinstance(equips, list):
+            return
+        owner_id, owner_meta = _card_metadata(owner, catalog)
+        owner_name = owner_meta.get("name", f"未知卡牌 {owner_id}")
+        owner_uid = owner.get("uid", "—")
+        for index, equipped in enumerate(equips):
+            if not isinstance(equipped, dict):
+                continue
+            _, equipped_meta = _card_metadata(equipped, catalog)
+            slot = _equipment_slot_label(equipped_meta, index)
+            append_instance(
+                equipped,
+                "equipped",
+                f"装备于 {owner_name}（UID {owner_uid}） · {slot}",
+                state_code="equipped",
+                state_label="已装备",
+                state_tone="gold",
+            )
+            append_equips(equipped.get("equips"), equipped)
+
+    top_cards = data.get("cards", [])
+    if isinstance(top_cards, list):
+        for card in top_cards:
+            if not isinstance(card, dict):
+                continue
+            equipped_count = (
+                len([item for item in card.get("equips", []) if isinstance(item, dict)])
+                if isinstance(card.get("equips"), list)
+                else 0
+            )
+            owner_flags = (
+                [{"code": "equipment_owner", "label": f"装备 {equipped_count} 件", "detail": ""}]
+                if equipped_count
+                else []
+            )
+            append_instance(
+                card,
+                "cards",
+                "",
+                state_code="registered",
+                state_label="顶层登记",
+                state_tone="muted",
+                extra_flags=owner_flags,
+            )
+            append_equips(card.get("equips"), card)
+
+    rites = data.get("rites", [])
+    if isinstance(rites, list):
+        for rite in rites:
+            if not isinstance(rite, dict) or not isinstance(rite.get("cards"), list):
+                continue
+            rite_id = int(rite.get("id", 0) or 0)
+            meta = rite_lookup(rite_id) if rite_lookup else {}
+            rite_name = meta.get("name", f"仪式 {rite_id}")
+            rite_uid = rite.get("uid", "—")
+            facts: list[str] = []
+            flags: list[dict[str, str]] = []
+            if rite.get("start"):
+                facts.append("已开始")
+                flags.append({"code": "rite_started", "label": "已开始", "detail": "start=true"})
+            facts.append("已显示" if rite.get("is_show") else "未显示")
+            if rite.get("life"):
+                facts.append(f"life={rite['life']}")
+            for index, card in enumerate(rite["cards"]):
+                append_instance(
+                    card,
+                    "rite",
+                    f"《{rite_name}》 · 槽 {index + 1} · 仪式 UID {rite_uid} · {' / '.join(facts)}",
+                    state_code="rite",
+                    state_label="事件 / 仪式中",
+                    state_tone="violet",
+                    extra_flags=flags,
+                )
+                if isinstance(card, dict):
+                    append_equips(card.get("equips"), card)
+
+    sudan_pool = data.get("sudan_card_pool", [])
+    if isinstance(sudan_pool, list):
+        for index, card in enumerate(sudan_pool):
+            pool_index = ""
+            if isinstance(card, dict) and isinstance(card.get("tag"), dict):
+                pool_index = card["tag"].get("sudan_pool_index", "")
+            relation = f"卡池槽 {index + 1}"
+            if pool_index != "":
+                relation += f" · 池索引 {pool_index}"
+            append_instance(
+                card,
+                "sudan_pool",
+                relation,
+                state_code="sudan_pool",
+                state_label="苏丹卡池",
+                state_tone="danger",
+            )
+
+    if isinstance(data.get("ithink_card"), dict):
+        append_instance(
+            data["ithink_card"],
+            "ithink_card",
+            "当前思考 / 选中卡牌",
+            state_code="thinking",
+            state_label="思考区",
+            state_tone="blue",
+        )
+
+    return instances
+
+
 def next_bag_position(data: dict[str, Any], bag: int = 0) -> int:
     """Allocate the next visible slot, ignoring discarded historical records."""
 
@@ -564,7 +827,28 @@ class SaveStore:
         self.backup_root = backup_root
         self.catalog_path = catalog_path
         self.catalog = card_catalog(catalog_path)
+        self.rite_root = catalog_path.parent / "rite"
+        self._rite_cache: dict[int, dict[str, Any]] = {}
         self.lock = threading.RLock()
+
+    def _rite_metadata(self, rite_id: int) -> dict[str, Any]:
+        if rite_id in self._rite_cache:
+            return self._rite_cache[rite_id]
+        path = self.rite_root / f"{rite_id}.json"
+        result: dict[str, Any] = {}
+        if path.is_file():
+            try:
+                raw = load_relaxed_json(path)
+                if isinstance(raw, dict):
+                    result = {
+                        "id": rite_id,
+                        "name": str(raw.get("name", f"仪式 {rite_id}")),
+                        "text": str(raw.get("text", "")),
+                    }
+            except (OSError, json.JSONDecodeError):
+                result = {}
+        self._rite_cache[rite_id] = result
+        return result
 
     def _archive_labels(self, account_root: Path) -> dict[str, str]:
         labels: dict[str, str] = {}
@@ -659,37 +943,21 @@ class SaveStore:
     def get_save(self, save_id: str) -> dict[str, Any]:
         account, relative, path = safe_resolve_save(self.save_base, save_id)
         data = load_json(path)
-        inventory: list[dict[str, Any]] = []
-        for card in data.get("cards", []):
-            if not isinstance(card, dict):
-                continue
-            card_id = int(card.get("id", 0) or 0)
-            meta = self.catalog.get(card_id, {})
-            inventory.append(
-                {
-                    "uid": card.get("uid"),
-                    "id": card_id,
-                    "count": card.get("count", 1),
-                    "life": card.get("life", 0),
-                    "bag": card.get("bag", 0),
-                    "bagpos": card.get("bagpos", 0),
-                    "in_inventory": card_is_in_inventory(card),
-                    "name": meta.get("name", f"未知卡牌 {card_id}"),
-                    "title": meta.get("title", ""),
-                    "text": meta.get("text", ""),
-                    "type": meta.get("type", ""),
-                    "rare": meta.get("rare", 0),
-                    "tags": meta.get("tags", []),
-                    "stackable": meta.get("stackable", False),
-                    "is_only": meta.get("is_only", False),
-                }
-            )
+        inventory = save_card_instances(data, self.catalog, self._rite_metadata)
+        summary = save_summary(data)
+        summary["card_instances"] = len(inventory)
+        summary["equipped_instances"] = sum(
+            1 for card in inventory if card["state"]["code"] == "equipped"
+        )
+        summary["rite_card_instances"] = sum(
+            1 for card in inventory if card["state"]["code"] == "rite"
+        )
         return {
             "id": save_id,
             "account": account,
             "relative": relative,
             "path": str(path),
-            "summary": save_summary(data),
+            "summary": summary,
             "cards": inventory,
             "parameters": save_parameters(data),
         }
